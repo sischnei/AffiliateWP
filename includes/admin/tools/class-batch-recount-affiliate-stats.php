@@ -41,6 +41,24 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	public $per_step = 1;
 
 	/**
+	 * Recount type.
+	 *
+	 * @access public
+	 * @since  2.0.5
+	 * @var    string
+	 */
+	public $type = '';
+
+	/**
+	 * ID of the affiliate to recount stats for.
+	 *
+	 * @access public
+	 * @since  2.0.5
+	 * @var    int
+	 */
+	public $affiliate_id = 0;
+
+	/**
 	 * Initializes the batch process.
 	 *
 	 * This is the point where any relevant data should be initialized for use by the processor methods.
@@ -48,7 +66,18 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	 * @access public
 	 * @since  2.0
 	 */
-	public function init( $data = null ) {}
+	public function init( $data = null ) {
+		if ( null !== $data ) {
+
+			$data = affiliate_wp()->utils->process_request_data( $data, 'user_name' );
+
+			if ( ! empty( $data['user_id'] ) ) {
+				$this->affiliate_id = affwp_get_affiliate_id( $data['user_id'] );
+			}
+
+			$this->type = sanitize_text_field( $data['recount_type'] );
+		}
+	}
 
 	/**
 	 * Pre-fetches data to speed up processing.
@@ -59,7 +88,15 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	public function pre_fetch() {
 
 		if ( false === $this->get_total_count() ) {
-			$this->compile_affiliate_totals();
+			if ( in_array( $this->type, array( 'earnings', 'unpaid-earnings' ), true ) ) {
+
+				$this->compile_affiliate_totals();
+
+			} else {
+
+				$this->compile_totals();
+
+			}
 		}
 
 	}
@@ -74,18 +111,30 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 		$affiliate_totals = affiliate_wp()->utils->data->get( "{$this->batch_id}_affiliate_totals", array() );
 
 		if ( false === $affiliate_totals ) {
-			$referrals = affiliate_wp()->referrals->get_referrals( array(
-				'number' => -1,
-				'status' => 'unpaid',
-			) );
+			if ( 'earnings' === $this->type ) {
+				$status = 'paid';
+			} elseif ( 'unpaid-earnings' === $this->type ) {
+				$status = 'unpaid';
+			} else {
+				$status = '';
+			}
+
+			if ( empty( $status ) ) {
+				// Bail if no status.
+				return;
+			}
+
+			$args = array(
+				'number'       => -1,
+				'status'       => $status,
+				'affiliate_id' => $this->affiliate_id,
+			);
+
+			$referrals = affiliate_wp()->referrals->get_referrals( $args );
 
 			$data_sets = array();
 
 			foreach ( $referrals as $referral ) {
-				if ( ! $referral || ( ! empty( $status ) && $status !== $referral->status ) ) {
-					continue;
-				}
-
 				$data_sets[ $referral->affiliate_id ][] = $referral;
 			}
 
@@ -111,6 +160,45 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	}
 
 	/**
+	 * Compiles totals for referrals and visits.
+	 *
+	 * @access public
+	 * @since  2.0.5
+	 */
+	public function compile_totals() {
+		$count = 0;
+
+		if ( 'referrals' === $this->type ) {
+
+			$referrals = affiliate_wp()->referrals->get_referrals( array(
+				'affiliate_id' => $this->affiliate_id,
+				'number'       => -1,
+				'fields'       => 'affiliate_id'
+			) );
+
+			$referrals = array_map( 'absint', $referrals );
+
+			$affiliate_totals = array_count_values( $referrals );
+
+		} elseif ( 'visits' === $this->type ) {
+
+			$visits = affiliate_wp()->visits->get_visits( array(
+				'affiliate_id' => $this->affiliate_id,
+				'number'       => -1,
+				'fields'       => 'affiliate_id'
+			) );
+
+			$visits = array_map( 'absint', array_count_values( $visits ) );
+
+			$affiliate_totals = array_count_values( $visits );
+		}
+
+		affiliate_wp()->utils->data->write( "{$this->batch_id}_affiliate_totals", $affiliate_totals );
+
+		$this->set_total_count( count( $affiliate_totals ) );
+	}
+
+	/**
 	 * Processes a single step (batch).
 	 *
 	 * @access public
@@ -129,8 +217,24 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 			return 'done';
 		}
 
-		// Replace unpaid earnings for the current affiliate.
-		affwp_increase_affiliate_unpaid_earnings( $affiliate_id, floatval( $affiliate_totals[ $affiliate_id ] ), $replace = true );
+		$total = $affiliate_totals[ $affiliate_id ];
+
+		if ( 'earnings' === $this->type ) {
+
+			affiliate_wp()->affiliates->update( $affiliate_id, array( 'earnings' => floatval( $total ), '', 'affiliate' ) );
+
+		} elseif ( 'unpaid-earnings' === $this->type ) {
+
+			affiliate_wp()->affiliates->update( $affiliate_id, array( 'unpaid_earnings' => floatval( $total ), '', 'affiliate' ) );
+
+		} elseif ( 'referrals' === $this->type ) {
+
+			affiliate_wp()->affiliates->update( $affiliate_id, array( 'referrals' => $total ), '', 'affiliate' );
+
+		} elseif ( 'visits' === $this->type ) {
+
+			affiliate_wp()->affiliates->update( $affiliate_id, array( 'visits' => $total ), '', 'affiliate' );
+		}
 
 		$this->set_current_count( absint( $current_count ) + 1 );
 
