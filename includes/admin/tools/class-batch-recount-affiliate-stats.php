@@ -59,6 +59,17 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	public $affiliate_id = 0;
 
 	/**
+	 * Whether the affiliate filter is set.
+	 *
+	 * Used for the case where an affiliate is filtered but there are no matches.
+	 *
+	 * @access public
+	 * @since  2.0.5
+	 * @var    bool
+	 */
+	public $affiliate_filter = false;
+
+	/**
 	 * Initializes the batch process.
 	 *
 	 * This is the point where any relevant data should be initialized for use by the processor methods.
@@ -69,10 +80,12 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	public function init( $data = null ) {
 		if ( null !== $data ) {
 
+			$this->affiliate_filter = ! empty( $data['user_name'] );
+
 			$data = affiliate_wp()->utils->process_request_data( $data, 'user_name' );
 
 			if ( ! empty( $data['user_id'] ) ) {
-				$this->affiliate_id = affwp_get_affiliate_id( $data['user_id'] );
+				$this->affiliate_id = affiliate_wp()->affiliates->get_column_by( 'affiliate_id', 'user_id', $data['user_id'] );
 			}
 
 			$this->type = sanitize_text_field( $data['recount_type'] );
@@ -86,6 +99,15 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 	 * @since  2.0
 	 */
 	public function pre_fetch() {
+
+		// If an invalid affiliate is set, go no further.
+		if ( ! $this->affiliate_id && $this->affiliate_filter ) {
+			affiliate_wp()->utils->data->write( "{$this->batch_id}_affiliate_totals", array() );
+
+			$this->set_total_count( 0 );
+
+			return;
+		}
 
 		if ( false === $this->get_total_count() ) {
 			if ( in_array( $this->type, array( 'earnings', 'unpaid-earnings' ), true ) ) {
@@ -256,14 +278,22 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 			case 'done':
 				$final_count = $this->get_current_count();
 
-				$message = sprintf(
-					_n(
-						'%s affiliate&#8217;s was successfully processed.',
-						'%s affiliates&#8217; were successfully processed.',
-						$final_count,
-						'affiliate-wp'
-					), number_format_i18n( $final_count )
-				);
+				if ( 0 == $final_count ) {
+
+					$message = __( 'No affiliates were found for the current recount filter.', 'affiliate-wp' );
+
+				} else {
+
+					$message = sprintf(
+						_n(
+							'%s affiliate was successfully processed.',
+							'%s affiliates were successfully processed.',
+							$final_count,
+							'affiliate-wp'
+						), number_format_i18n( $final_count )
+					);
+
+				}
 				break;
 
 			default:
