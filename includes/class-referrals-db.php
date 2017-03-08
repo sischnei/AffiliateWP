@@ -261,6 +261,28 @@ class Affiliate_WP_Referrals_DB extends Affiliate_WP_DB  {
 
 		return $wpdb->get_row( $wpdb->prepare(  "SELECT * FROM $this->table_name WHERE $column = '%s'$and LIMIT 1;", $row_id ) );
 	}
+	
+	/**
+	 * Retrieves ALL referral by a specific field.
+	 *
+	 * @TRIDEX!!
+	 * @access  public
+	 * @since   1.0
+	 *
+	 * @param string $column  Column name. See get_columns().
+	 * @param string $context Optional. Context for which to retrieve a referral. Default empty.
+	 * @return object|null Database query result object or null on failure.
+	*/
+	public function get_all_by( $column, $row_id, $context = '' ) {
+		global $wpdb;
+
+		$and = '';
+		if( ! empty( $context ) ) {
+			$and = " AND context = '" . esc_sql( $context ) . "'";
+		}
+
+		return $wpdb->get_results( $wpdb->prepare(  "SELECT * FROM $this->table_name WHERE $column = '%s';", $row_id ) );
+	}
 
 	/**
 	 * Retrieves referrals from the database.
