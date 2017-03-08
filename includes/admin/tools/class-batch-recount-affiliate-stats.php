@@ -280,18 +280,48 @@ class Recount_Affiliate_Stats extends Utils\Batch_Process implements Batch\With_
 
 				if ( 0 == $final_count ) {
 
-					$message = __( 'No affiliates were found for the current recount filter.', 'affiliate-wp' );
+					$message = __( 'No affiliates were found to be recounted for the current filters.', 'affiliate-wp' );
 
 				} else {
 
-					$message = sprintf(
-						_n(
-							'%s affiliate was successfully processed.',
-							'%s affiliates were successfully processed.',
-							$final_count,
-							'affiliate-wp'
-						), number_format_i18n( $final_count )
-					);
+					$filtered = 1 == $final_count && $this->affiliate_filter;
+					$username = affwp_get_affiliate_username( $this->affiliate_id );
+
+					switch( $this->type ) {
+						case 'earnings':
+							if ( $filtered ) {
+								$message = sprintf( __( 'Earnings have been successfully recounted for %s.', 'affiliate-wp' ), $username );
+							} else {
+								$message = __( 'Earnings have been successfully recounted for all matching affiliates.', 'affiliate-wp' );
+							}
+							break;
+
+						case 'unpaid-earnings':
+							if ( $filtered ) {
+								$message = sprintf( __( 'Unpaid earnings have been successfully recounted for %s.', 'affiliate-wp' ), $username );
+							} else {
+								$message = __( 'Unpaid earnings have been successfully recounted for all matching affiliates.', 'affiliate-wp' );
+							}
+							break;
+
+						case 'referrals':
+							if ( $filtered ) {
+								$message = sprintf( __( 'Referrals have been successfully recounted for %s.', 'affiliate-wp' ), $username );
+							} else {
+								$message = __( 'Referrals have been successfully recounted for all matching affiliates.', 'affiliate-wp' );
+							}
+							break;
+
+						case 'visits':
+							if ( $filtered ) {
+								$message = sprintf( __( 'Visits have been successfully recounted for %s.', 'affiliate-wp' ), $username );
+							} else {
+								$message = __( 'Visits have been successfully recounted for all matching affiliates.', 'affiliate-wp' );
+							}
+							break;
+
+						default: break;
+					}
 
 				}
 				break;
