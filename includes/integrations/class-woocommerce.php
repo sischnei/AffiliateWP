@@ -1,5 +1,6 @@
 <?php
 
+
 class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 
 	/**
@@ -23,18 +24,21 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 		add_action( 'woocommerce_checkout_order_processed', array( $this, 'add_pending_referral' ), 10 );
 
 		// There should be an option to choose which of these is used
-		add_action( 'woocommerce_order_status_completed', array( $this, 'mark_referral_complete' ), 10 );
-		add_action( 'woocommerce_order_status_processing', array( $this, 'mark_referral_complete' ), 10 );
-		add_action( 'woocommerce_order_status_completed_to_refunded', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_on-hold_to_refunded', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_processing_to_refunded', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_processing_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_completed_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_pending_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'woocommerce_order_status_pending_to_failed', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'wc-on-hold_to_trash', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'wc-processing_to_trash', array( $this, 'revoke_referral_on_refund' ), 10 );
-		add_action( 'wc-completed_to_trash', array( $this, 'revoke_referral_on_refund' ), 10 );
+		add_action( 'woocommerce_order_status_completed', array( $this, 'mark_referral_complete' ), 1 );
+		add_action( 'woocommerce_order_status_processing', array( $this, 'mark_referral_complete' ), 1 );		
+		add_action( 'woocommerce_order_status_completed_to_refunded', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_on-hold_to_refunded', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_processing_to_refunded', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_processing_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_completed_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_pending_to_cancelled', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'woocommerce_order_status_pending_to_failed', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'wc-on-hold_to_trash', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'wc-processing_to_trash', array( $this, 'revoke_referral_on_refund' ), 1 );
+		add_action( 'wc-completed_to_trash', array( $this, 'revoke_referral_on_refund' ), 1 );
+		
+		
+
 
 		add_filter( 'affwp_referral_reference_column', array( $this, 'reference_link' ), 10, 2 );
 
@@ -61,13 +65,14 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 	 * @since   1.0
 	*/
 	public function add_pending_referral( $order_id = 0 ) {
-
+		global $wpdb;
+		global $WOOCS;
 		$this->order = apply_filters( 'affwp_get_woocommerce_order', new WC_Order( $order_id ) );
-
+		tridexLogObj("add_pending_referral: ", $this->order);
 		// Check if an affiliate coupon was used
 		$coupon_affiliate_id = $this->get_coupon_affiliate_id();
-
-		if ( $this->was_referred() || $coupon_affiliate_id ) {
+		$joadreapp = isset($_COOKIE['joadreapp']);
+		if ( $this->was_referred() || $coupon_affiliate_id || $joadreapp) {
 
 			// get affiliate ID
 			$affiliate_id = $this->get_affiliate_id( $order_id );
@@ -105,6 +110,8 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 			// Calculate the referral amount based on product prices
 			$amount = 0.00;
 
+			$description = $this->get_referral_description();
+			
 			foreach ( $items as $product ) {
 
 				if ( get_post_meta( $product['product_id'], '_affwp_' . $this->context . '_referrals_disabled', true ) ) {
@@ -113,6 +120,22 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 
 				if( ! empty( $product['variation_id'] ) && get_post_meta( $product['variation_id'], '_affwp_' . $this->context . '_referrals_disabled', true ) ) {
 					continue; // Referrals are disabled on this variation
+				}
+				
+				$tridexAffiliateAmount = -1.0;
+				if(isset($product['Affiliate']) && !empty( $product['Affiliate'])) {
+					tridexLogObj("Affiliate name: ", $product['Affiliate']);
+					$wp_user = get_user_by('login', $product['Affiliate']);
+					tridexLogObj("Wordpress userID: ", $wp_user->ID);
+					if (false !== $wp_user) {
+						$affiliate = $wpdb->get_results($wpdb->prepare('SELECT * FROM cms_2_affiliate_wp_affiliates WHERE user_id = %d', $wp_user->ID));
+						tridexLogObj("Affiliate: ", $affiliate);
+						if (!empty($affiliate)) {
+							$affiliate_id =  $affiliate[0]->affiliate_id;
+							$tridexAffiliateAmount = 0.0;
+							tridexLogObj("Overriding affiliate ID: ", $affiliate_id);
+						}
+					}
 				}
 
 				// The order discount has to be divided across the items
@@ -136,50 +159,23 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 				if( ! empty( $product['variation_id'] ) && $this->get_product_rate( $product['variation_id'] ) ) {
 					$product_id_for_rate = $product['variation_id'];
 				}
-				$amount += $this->calculate_referral_amount( $product_total, $order_id, $product_id_for_rate, $affiliate_id );
-
-			}
-
-			if ( 0 == $amount && affiliate_wp()->settings->get( 'ignore_zero_referrals' ) ) {
-
-				if( $this->debug ) {
-					$this->log( 'Referral not created due to 0.00 amount.' );
-				}
-
-				return false; // Ignore a zero amount referral
-			}
-
-			$description = $this->get_referral_description();
-			$visit_id    = affiliate_wp()->tracking->get_visit_id();
-
-			if ( $existing ) {
-
-				// Update the previously created referral
-				affiliate_wp()->referrals->update_referral( $existing->referral_id, array(
-					'amount'       => $amount,
-					'reference'    => $order_id,
-					'description'  => $description,
-					'campaign'     => affiliate_wp()->tracking->get_campaign(),
-					'affiliate_id' => $affiliate_id,
-					'visit_id'     => $visit_id,
-					'products'     => $this->get_products(),
-					'context'      => $this->context
-				) );
-
-				if( $this->debug ) {
-					$this->log( sprintf( 'WooCommerce Referral #%d updated successfully.', $existing->referral_id ) );
-				}
-
-			} else {
-
-				// Create a new referral
+				
+				if ($tridexAffiliateAmount == 0) {
+					$tridexAffiliateAmount = $this->calculate_referral_amount( $product_total, $order_id, $product_id_for_rate, $affiliate_id );
+					if ($WOOCS->current_currency !== "EUR") {
+						tridexLog("unconverted converted amount: ".$tridexAffiliateAmount);
+						$exchange_rate = 1 / $WOOCS->get_currencies()['EUR']['rate'];
+						tridexLog("exchange_rate: ".$exchange_rate);
+						$tridexAffiliateAmount = $WOOCS->back_convert($tridexAffiliateAmount, $exchange_rate, 2);
+						tridexLog("converted amount: ".$tridexAffiliateAmount);
+					}
+					
+					// Create a new referral
 				$referral_id = affiliate_wp()->referrals->add( apply_filters( 'affwp_insert_pending_referral', array(
-					'amount'       => $amount,
+					'amount'       => $tridexAffiliateAmount,
 					'reference'    => $order_id,
 					'description'  => $description,
-					'campaign'     => affiliate_wp()->tracking->get_campaign(),
 					'affiliate_id' => $affiliate_id,
-					'visit_id'     => $visit_id,
 					'products'     => $this->get_products(),
 					'context'      => $this->context
 				), $amount, $order_id, $description, $affiliate_id, $visit_id, array(), $this->context ) );
@@ -201,6 +197,84 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 						$this->log( 'Referral failed to be created.' );
 					}
 
+				}
+					
+				} else {
+					$amount += $this->calculate_referral_amount( $product_total, $order_id, $product_id_for_rate, $affiliate_id );
+				}
+
+			}
+
+			if ( 0 == $amount && affiliate_wp()->settings->get( 'ignore_zero_referrals' ) ) {
+
+				if( $this->debug ) {
+					$this->log( 'Referral not created due to 0.00 amount.' );
+				}
+
+				return false; // Ignore a zero amount referral
+			}
+			
+			$visit_id    = affiliate_wp()->tracking->get_visit_id();
+			
+			if ($WOOCS->current_currency !== "EUR") {
+					tridexLog("1unconverted converted amount: ".$amount);
+					$exchange_rate = 1 / $WOOCS->get_currencies()['EUR']['rate'];
+					tridexLog("1exchange_rate: ".$exchange_rate);
+					$amount = $WOOCS->back_convert($amount, $exchange_rate, 2);
+					tridexLog("1converted amount: ".$amount);
+				}
+
+			if ( $existing ) {
+
+				// Update the previously created referral
+				affiliate_wp()->referrals->update_referral( $existing->referral_id, array(
+					'amount'       => $amount,
+					'reference'    => $order_id,
+					'description'  => $description,
+					'campaign'     => affiliate_wp()->tracking->get_campaign(),
+					'affiliate_id' => $affiliate_id,
+					'visit_id'     => $visit_id,
+					'products'     => $this->get_products(),
+					'context'      => $this->context
+				) );
+
+				if( $this->debug ) {
+					$this->log( sprintf( 'WooCommerce Referral #%d updated successfully.', $existing->referral_id ) );
+				}
+
+			} else {
+				if (!$joadreapp) {
+				
+					// Create a new referral
+					$referral_id = affiliate_wp()->referrals->add( apply_filters( 'affwp_insert_pending_referral', array(
+						'amount'       => $amount,
+						'reference'    => $order_id,
+						'description'  => $description,
+						'campaign'     => affiliate_wp()->tracking->get_campaign(),
+						'affiliate_id' => $affiliate_id,
+						'visit_id'     => $visit_id,
+						'products'     => $this->get_products(),
+						'context'      => $this->context
+					), $amount, $order_id, $description, $affiliate_id, $visit_id, array(), $this->context ) );
+
+					if ( $referral_id ) {
+
+						if( $this->debug ) {
+							$this->log( sprintf( 'Referral #%d created successfully.', $referral_id ) );
+						}
+
+						$amount = affwp_currency_filter( affwp_format_amount( $amount ) );
+						$name   = affiliate_wp()->affiliates->get_affiliate_name( $affiliate_id );
+
+						$this->order->add_order_note( sprintf( __( 'Referral #%d for %s recorded for %s', 'affiliate-wp' ), $referral_id, $amount, $name ) );
+
+					} else {
+
+						if( $this->debug ) {
+							$this->log( 'Referral failed to be created.' );
+						}
+
+					}
 				}
 			}
 
@@ -276,15 +350,19 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 	 * @access public
 	 */
 	public function mark_referral_complete( $order_id = 0 ) {
-
+		
 		$this->order = apply_filters( 'affwp_get_woocommerce_order', new WC_Order( $order_id ) );
 
 		// If the WC status is 'wc-processing' and a COD order, leave as 'pending'.
 		if ( 'wc-processing' == $this->order->post_status && 'cod' === get_post_meta( $order_id, '_payment_method', true ) ) {
 			return;
 		}
-
-		$this->complete_referral( $order_id );
+		
+		$referrals = affiliate_wp()->referrals->get_all_by( 'reference', $order_id, $this->context );
+		
+		foreach ($referrals as $referral) {
+			$this->complete_referral( $referral );
+		}
 	}
 
 	/**
@@ -307,7 +385,10 @@ class Affiliate_WP_WooCommerce extends Affiliate_WP_Base {
 			return;
 		}
 
-		$this->reject_referral( $order_id );
+		$referrals = affiliate_wp()->referrals->get_all_by( 'reference', $order_id, $this->context );
+		foreach ($referrals as $referral) {
+			$this->reject_referral( $referral );
+		}
 
 	}
 
